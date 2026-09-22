@@ -12,12 +12,14 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    response = requests.post(url, json=payload)
-    
-    if not response.ok:
-        print(f"❌ Telegram Hatası ({response.status_code}): {response.text}")
-    else:
-        print("✅ Telegram mesajı başarıyla gönderildi!")
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        if not response.ok:
+            print(f"❌ Telegram Hatası ({response.status_code}): {response.text}")
+        else:
+            print("✅ Telegram mesajı başarıyla gönderildi!")
+    except Exception as e:
+        print(f"❌ Telegram bağlantı hatası: {e}")
 
 def check_domain(domain):
     url = f"http://{domain}" if not domain.startswith("http") else domain
@@ -40,23 +42,23 @@ def analyze_with_ai(domain_results):
     {domain_results}
     """
     
-    # Sırasıyla denenecek güncel modeller
+    # Denenecek modeller
     models = ['gemini-2.5-flash', 'gemini-2.0-flash']
     
     for model_name in models:
-        for attempt in range(3):
+        for attempt in range(2):
             try:
-                print(f"🤖 {model_name} modeli ile deneniyor (Deneme {attempt + 1})...")
+                print(f"🤖 {model_name} deneniyor (Deneme {attempt + 1})...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                 )
                 return response.text
             except Exception as e:
-                print(f"⚠️ {model_name} denemesi başarısız oldu: {e}")
-                time.sleep(10)  # Sunucunun rahatlaması için 10 saniye bekle
+                print(f"⚠️ {model_name} hatası: {e}")
+                time.sleep(5)
                 
-    raise Exception("Tüm AI modelleri ve denemeleri sunucu yoğunluğu nedeniyle başarısız oldu.")
+    return None
 
 def main():
     if not os.path.exists("domains.txt"):
@@ -66,6 +68,10 @@ def main():
     with open("domains.txt", "r") as f:
         domains = [line.strip() for line in f if line.strip()]
 
+    if not domains:
+        send_telegram_message("⚠️ `domains.txt` dosyası boş, kontrol edilecek domain yok.")
+        return
+
     results = []
     for domain in domains:
         status, content = check_domain(domain)
@@ -73,13 +79,14 @@ def main():
 
     all_data = "\n".join(results)
     
-    try:
-        report = analyze_with_ai(all_data)
+    # AI Analizini Al
+    report = analyze_with_ai(all_data)
+    
+    if report:
         send_telegram_message(f"📊 **Haftalık Domain Durum Raporu**\n\n{report}")
-    except Exception as e:
-        print(f"❌ AI analizi tamamen başarısız oldu: {e}")
-        # Hata durumunda iş akışının tamamen çökmemesi ve verinin kaybolmaması için ham rapor gönderilir:
-        send_telegram_message(f"⚠️ AI sunucuları geçici olarak yoğun olduğu için özet üretilemedi.\n\n**Ham Tarama Verileri:**\n\n{all_data[:1500]}")
+    else:
+        # AI yanıt vermese bile Telegram'a ham veriyi gönder
+        send_telegram_message(f"⚠️ AI özet üretemedi, ancak domainler tarandı:\n\n{all_data[:1500]}")
 
 if __name__ == "__main__":
     main()
