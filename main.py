@@ -1,4 +1,3 @@
-```python
 import os
 import time
 import requests
@@ -6,10 +5,12 @@ import requests
 from google import genai
 from google.genai import errors
 
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    raise RuntimeError("GEMINI_API_KEY is missing")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -21,53 +22,48 @@ MODELS = [
 
 def send_telegram_message(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Telegram bilgileri eksik.")
+        print("Telegram settings are missing.")
         return
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
+        "text": message
     }
 
     try:
-        response = requests.post(
-            url,
-            json=payload,
-            timeout=15
-        )
+        response = requests.post(url, json=payload, timeout=15)
 
         if response.ok:
-            print("Telegram mesajı gönderildi.")
+            print("Telegram message sent.")
             return
 
         print(
-            f"Telegram hatası: "
-            f"{response.status_code} "
+            f"Telegram error: {response.status_code} "
             f"{response.text}"
         )
 
-        payload.pop("parse_mode", None)
+        if len(message) > 4000:
+            message = message[:4000]
 
         response = requests.post(
             url,
-            json=payload,
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message
+            },
             timeout=15
         )
 
-        if response.ok:
-            print("Telegram mesajı gönderildi.")
-        else:
+        if not response.ok:
             print(
-                f"Telegram hatası: "
-                f"{response.status_code} "
-                f"{response.text}"
+                f"Telegram retry error: "
+                f"{response.status_code} {response.text}"
             )
 
-    except requests.RequestException as e:
-        print(f"Telegram bağlantı hatası: {e}")
+    except requests.RequestException as exc:
+        print(f"Telegram connection error: {exc}")
 
 
 def check_domain(domain):
@@ -76,9 +72,7 @@ def check_domain(domain):
     if not domain:
         return "EMPTY", "", ""
 
-    if domain.startswith("http://"):
-        urls = [domain]
-    elif domain.startswith("https://"):
+    if domain.startswith("http://") or domain.startswith("https://"):
         urls = [domain]
     else:
         urls = [
@@ -86,7 +80,7 @@ def check_domain(domain):
             f"http://{domain}"
         ]
 
-    last_error = None
+    last_error = ""
 
     for url in urls:
         try:
@@ -94,86 +88,66 @@ def check_domain(domain):
                 url,
                 timeout=15,
                 headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 "
-                        "(Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) "
-                        "Chrome/140.0 Safari/537.36"
-                    )
+                    "User-Agent": "Mozilla/5.0"
                 },
                 allow_redirects=True
             )
 
             return (
                 response.status_code,
-                response.text[:2000],
+                response.text[:3000],
                 response.url
             )
 
-        except requests.RequestException as e:
-            last_error = str(e)
+        except requests.RequestException as exc:
+            last_error = str(exc)
 
-    return (
-        "ERROR",
-        last_error or "Bilinmeyen hata",
-        ""
-    )
+    return "ERROR", last_error, ""
 
 
 def analyze_with_ai(domain_results):
     prompt = f"""
-Sen bir domain takip sisteminin analiz asistanısın.
+Analyze the following domain monitoring results.
 
-Aşağıdaki domain tarama sonuçlarını analiz et.
+For every domain determine:
 
-Her domain için:
+1. Is the domain reachable?
+2. What is the HTTP status?
+3. Was it redirected?
+4. Does it look like a normal website?
+5. Does it look like a domain sale page?
+6. Are there signs of Sedo, GoDaddy, Afternic or domain parking?
+7. Are there phrases such as "domain for sale", "buy this domain",
+   "make an offer" or similar?
+8. Does the site appear closed or unused?
+9. Is there evidence that the domain may have changed ownership?
 
-1. Domain erişilebilir mi?
-2. HTTP status kodu nedir?
-3. Başka bir adrese yönlendirilmiş mi?
-4. Normal web sitesi olarak çalışıyor mu?
-5. Domain satış sayfası gibi görünüyor mu?
-6. Sedo, GoDaddy, Afternic veya başka domain satış veya park
-hizmetlerine ait belirtiler var mı?
-7. "This domain is for sale", "Buy this domain",
-"Domain parked", "Make an offer" gibi ifadeler var mı?
-8. Site kapanmış veya kullanılmıyor gibi görünüyor mu?
-9. El değiştirmiş olabileceğine dair belirgin bir işaret var mı?
+Use only the supplied HTTP data and page content.
+Do not state uncertain conclusions as facts.
 
-Sadece verilen HTTP bilgisi ve sayfa içeriğine dayan.
+Write a short Turkish Telegram report.
 
-Kesin olmayan durumlarda kesin hüküm verme.
-
-Sonucu Türkçe hazırla.
-
-Telegram'da okunabilecek kısa ve anlaşılır bir rapor oluştur.
-
-Her domain için şu formatı kullan:
+Use this structure:
 
 DOMAIN
+STATUS
+SHORT EXPLANATION
 
-DURUM
+At the end add:
 
-Kısa açıklama
+GENEL OZET
 
-Sonunda:
-
-GENEL ÖZET
-
-başlığı altında önemli noktaları özetle.
-
-Domain tarama sonuçları:
+Data:
 
 {domain_results}
 """
 
     for model_name in MODELS:
-        print(f"Gemini modeli: {model_name}")
+        print(f"Trying model: {model_name}")
 
         for attempt in range(4):
             try:
-                print(f"Deneme {attempt + 1}/4")
+                print(f"Attempt {attempt + 1}/4")
 
                 response = client.models.generate_content(
                     model=model_name,
@@ -181,25 +155,19 @@ Domain tarama sonuçları:
                 )
 
                 if response is None:
-                    raise RuntimeError(
-                        "Gemini boş response döndürdü."
-                    )
+                    raise RuntimeError("Empty Gemini response")
 
-                if not response.text:
-                    raise RuntimeError(
-                        "Gemini response.text boş."
-                    )
+                text = getattr(response, "text", None)
 
-                return response.text
+                if not text:
+                    raise RuntimeError("Empty Gemini response text")
 
-            except errors.APIError as e:
-                print(f"Gemini API hatası: {e}")
+                return text
 
-                status_code = getattr(
-                    e,
-                    "code",
-                    None
-                )
+            except errors.APIError as exc:
+                print(f"Gemini API error: {exc}")
+
+                status_code = getattr(exc, "code", None)
 
                 retryable_codes = {
                     408,
@@ -213,36 +181,25 @@ Domain tarama sonuçları:
                 if status_code not in retryable_codes:
                     break
 
-                wait_time = min(
-                    5 * (2 ** attempt),
-                    60
-                )
-
-                print(
-                    f"{wait_time} saniye bekleniyor."
-                )
-
+                wait_time = min(5 * (2 ** attempt), 60)
+                print(f"Waiting {wait_time} seconds")
                 time.sleep(wait_time)
 
-            except Exception as e:
-                print(
-                    f"Gemini hatası: {e}"
-                )
+            except Exception as exc:
+                print(f"Gemini error: {exc}")
 
-                wait_time = min(
-                    5 * (2 ** attempt),
-                    60
-                )
-
+                wait_time = min(5 * (2 ** attempt), 60)
                 time.sleep(wait_time)
 
     return None
 
 
 def main():
+    print("Starting domain monitor")
+
     if not os.path.exists("domains.txt"):
         send_telegram_message(
-            "domains.txt dosyası bulunamadı."
+            "domains.txt file was not found."
         )
         return
 
@@ -251,38 +208,39 @@ def main():
             "domains.txt",
             "r",
             encoding="utf-8"
-        ) as f:
+        ) as file:
             domains = [
                 line.strip()
-                for line in f
+                for line in file
                 if line.strip()
                 and not line.strip().startswith("#")
             ]
 
-    except Exception as e:
+    except Exception as exc:
+        print(f"Could not read domains.txt: {exc}")
         send_telegram_message(
-            f"domains.txt okunamadı:\n{e}"
+            f"Could not read domains.txt: {exc}"
         )
         return
 
     if not domains:
         send_telegram_message(
-            "domains.txt boş."
+            "domains.txt is empty."
         )
         return
 
     results = []
 
     for domain in domains:
-        status, content, final_url = check_domain(
-            domain
-        )
+        print(f"Checking: {domain}")
+
+        status, content, final_url = check_domain(domain)
 
         result = (
             f"Domain: {domain}\n"
             f"HTTP Status: {status}\n"
             f"Final URL: {final_url}\n"
-            f"İçerik:\n{content[:1000]}\n"
+            f"Content:\n{content[:1500]}\n"
             f"{'-' * 50}"
         )
 
@@ -290,32 +248,24 @@ def main():
 
     all_data = "\n\n".join(results)
 
-    report = analyze_with_ai(
-        all_data
-    )
+    report = analyze_with_ai(all_data)
 
     if report:
         message = (
-            "Haftalık Domain Durum Raporu\n\n"
+            "Haftalik Domain Durum Raporu\n\n"
             f"{report}"
         )
-
-        send_telegram_message(
-            message
-        )
-
     else:
-        raw_message = (
-            "AI raporu oluşturulamadı.\n\n"
-            "Ham Tarama Sonuçları:\n\n"
+        message = (
+            "AI raporu olusturulamadi.\n\n"
+            "Ham tarama sonuclari:\n\n"
             f"{all_data[:3500]}"
         )
 
-        send_telegram_message(
-            raw_message
-        )
+    send_telegram_message(message)
+
+    print("Domain monitor finished")
 
 
 if __name__ == "__main__":
     main()
-```
