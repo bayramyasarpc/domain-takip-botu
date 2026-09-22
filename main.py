@@ -40,23 +40,23 @@ def analyze_with_ai(domain_results):
     {domain_results}
     """
     
-    # Sırasıyla denenecek modeller
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash']
+    # Sırasıyla denenecek güncel modeller
+    models = ['gemini-2.5-flash', 'gemini-2.0-flash']
     
-    for model_name in models_to_try:
+    for model_name in models:
         for attempt in range(3):
             try:
-                print(f"🤖 {model_name} ile analiz deneniyor (Deneme {attempt + 1})...")
+                print(f"🤖 {model_name} modeli ile deneniyor (Deneme {attempt + 1})...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                 )
                 return response.text
             except Exception as e:
-                print(f"⚠️ {model_name} denemesi başarısız: {e}")
-                time.sleep(5) # Sunucu yoğunsa 5 saniye bekle
+                print(f"⚠️ {model_name} denemesi başarısız oldu: {e}")
+                time.sleep(10)  # Sunucunun rahatlaması için 10 saniye bekle
                 
-    raise Exception("Tüm Gemini modelleri ve denemeleri yoğunluk nedeniyle başarısız oldu.")
+    raise Exception("Tüm AI modelleri ve denemeleri sunucu yoğunluğu nedeniyle başarısız oldu.")
 
 def main():
     if not os.path.exists("domains.txt"):
@@ -77,8 +77,9 @@ def main():
         report = analyze_with_ai(all_data)
         send_telegram_message(f"📊 **Haftalık Domain Durum Raporu**\n\n{report}")
     except Exception as e:
-        # Sunuculardan yanıt alınamazsa en azından ham veriyi iletir
-        send_telegram_message(f"⚠️ AI sunucuları anlık yoğunluk nedeniyle yanıt veremedi. Taranan domain durumları:\n\n{all_data[:1000]}")
+        print(f"❌ AI analizi tamamen başarısız oldu: {e}")
+        # Hata durumunda iş akışının tamamen çökmemesi ve verinin kaybolmaması için ham rapor gönderilir:
+        send_telegram_message(f"⚠️ AI sunucuları geçici olarak yoğun olduğu için özet üretilemedi.\n\n**Ham Tarama Verileri:**\n\n{all_data[:1500]}")
 
 if __name__ == "__main__":
     main()
