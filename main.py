@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 from google import genai
 
@@ -6,7 +7,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Güncel Google GenAI istemcisi
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def send_telegram_message(message):
@@ -40,12 +40,23 @@ def analyze_with_ai(domain_results):
     {domain_results}
     """
     
-    # Güncel Gemini 3.6 Flash modeli
-    response = client.models.generate_content(
-        model='gemini-3.6-flash',
-        contents=prompt,
-    )
-    return response.text
+    # Sırasıyla denenecek modeller
+    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash']
+    
+    for model_name in models_to_try:
+        for attempt in range(3):
+            try:
+                print(f"🤖 {model_name} ile analiz deneniyor (Deneme {attempt + 1})...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                return response.text
+            except Exception as e:
+                print(f"⚠️ {model_name} denemesi başarısız: {e}")
+                time.sleep(5) # Sunucu yoğunsa 5 saniye bekle
+                
+    raise Exception("Tüm Gemini modelleri ve denemeleri yoğunluk nedeniyle başarısız oldu.")
 
 def main():
     if not os.path.exists("domains.txt"):
@@ -61,9 +72,13 @@ def main():
         results.append(f"Domain: {domain}\nStatus: {status}\nİçerik Özeti: {content[:300]}\n---")
 
     all_data = "\n".join(results)
-    report = analyze_with_ai(all_data)
     
-    send_telegram_message(f"📊 **Haftalık Domain Durum Raporu**\n\n{report}")
+    try:
+        report = analyze_with_ai(all_data)
+        send_telegram_message(f"📊 **Haftalık Domain Durum Raporu**\n\n{report}")
+    except Exception as e:
+        # Sunuculardan yanıt alınamazsa en azından ham veriyi iletir
+        send_telegram_message(f"⚠️ AI sunucuları anlık yoğunluk nedeniyle yanıt veremedi. Taranan domain durumları:\n\n{all_data[:1000]}")
 
 if __name__ == "__main__":
     main()
