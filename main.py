@@ -1,19 +1,19 @@
 import os
 import requests
-import google.generativeai as genai
+from google import genai
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-genai.configure(api_key=GEMINI_API_KEY)
+# Yeni Google GenAI istemcisi
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
     response = requests.post(url, json=payload)
     
-    # Eğer Telegram mesajı gönderemezse sebebini konsola yazdır
     if not response.ok:
         print(f"❌ Telegram Hatası ({response.status_code}): {response.text}")
     else:
@@ -28,7 +28,6 @@ def check_domain(domain):
         return "ERROR", str(e)
 
 def analyze_with_ai(domain_results):
-    model = genai.GenerativeModel('gemini-1.5-flash')
     prompt = f"""
     Aşağıda takip edilen domainlerin bugünkü tarama sonuçları var.
     Her domain için durumu analiz et:
@@ -40,7 +39,12 @@ def analyze_with_ai(domain_results):
     Veriler:
     {domain_results}
     """
-    response = model.generate_content(prompt)
+    
+    # Güncel Gemini 2.5 Flash modeli
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+    )
     return response.text
 
 def main():
