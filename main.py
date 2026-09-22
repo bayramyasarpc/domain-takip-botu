@@ -42,23 +42,23 @@ def analyze_with_ai(domain_results):
     {domain_results}
     """
     
-    # Denenecek modeller
+    # Sırasıyla denenecek güncel modeller
     models = ['gemini-2.5-flash', 'gemini-2.0-flash']
     
     for model_name in models:
-        for attempt in range(2):
+        for attempt in range(3):
             try:
-                print(f"🤖 {model_name} deneniyor (Deneme {attempt + 1})...")
+                print(f"🤖 {model_name} modeli ile deneniyor (Deneme {attempt + 1})...")
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
                 )
                 return response.text
             except Exception as e:
-                print(f"⚠️ {model_name} hatası: {e}")
-                time.sleep(5)
+                print(f"⚠️ {model_name} denemesi başarısız oldu: {e}")
+                time.sleep(5)  # Sunucu yoğunsa 5 saniye bekle
                 
-    return None
+    return None  # Hiçbir model yanıt vermezse None dön, programı çökertme
 
 def main():
     if not os.path.exists("domains.txt"):
@@ -69,7 +69,7 @@ def main():
         domains = [line.strip() for line in f if line.strip()]
 
     if not domains:
-        send_telegram_message("⚠️ `domains.txt` dosyası boş, kontrol edilecek domain yok.")
+        send_telegram_message("⚠️ `domains.txt` dosyası boş, takip edilen domain yok.")
         return
 
     results = []
@@ -79,14 +79,14 @@ def main():
 
     all_data = "\n".join(results)
     
-    # AI Analizini Al
+    # AI analizi al
     report = analyze_with_ai(all_data)
     
     if report:
         send_telegram_message(f"📊 **Haftalık Domain Durum Raporu**\n\n{report}")
     else:
-        # AI yanıt vermese bile Telegram'a ham veriyi gönder
-        send_telegram_message(f"⚠️ AI özet üretemedi, ancak domainler tarandı:\n\n{all_data[:1500]}")
+        # Sunuculardan yanıt alınamazsa bile ham veriyi Telegram'a gönder
+        send_telegram_message(f"⚠️ AI sunucuları geçici olarak yoğun olduğu için özet üretemedi.\n\n**Ham Tarama Verileri:**\n\n{all_data[:1500]}")
 
 if __name__ == "__main__":
     main()
