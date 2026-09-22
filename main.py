@@ -6,7 +6,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Yeni Google GenAI istemcisi
+# Güncel Google GenAI istemcisi
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def send_telegram_message(message):
@@ -40,9 +40,9 @@ def analyze_with_ai(domain_results):
     {domain_results}
     """
     
-    # Güncel Gemini 2.5 Flash modeli
+    # Güncel Gemini 3.6 Flash modeli
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.6-flash',
         contents=prompt,
     )
     return response.text
