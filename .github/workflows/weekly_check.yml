@@ -2,9 +2,8 @@ name: Haftalık Domain Kontrolü
 
 on:
   schedule:
-    # Her Pazartesi sabah 09:00 TSI (06:00 UTC) çalışır
     - cron: '0 6 * * 1'
-  workflow_dispatch: # İstediğiniz an elle çalıştırmanızı sağlar
+  workflow_dispatch:
 
 jobs:
   check-domains:
@@ -16,11 +15,11 @@ jobs:
       - name: Python Kur
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Kütüphaneleri Yükle
         run: |
-          pip install requests google-generativeai
+          pip install requests google-genai
 
       - name: Botu Çalıştır
         env:
