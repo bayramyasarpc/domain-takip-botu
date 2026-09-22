@@ -1,4 +1,1 @@
-example.com
-mywebsite.org
-testdomain.net
 https://www.kolayihracat.gov.tr/
