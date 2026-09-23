@@ -27,7 +27,6 @@ def send_telegram_message(message):
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-    # Markdown formatında gönderim açıldı
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
@@ -109,7 +108,6 @@ def check_domain(domain):
 
 
 def analyze_with_ai(domain_results):
-    # Prompt tablo ve liste formatına göre tamamen yenilendi
     prompt = f"""
 Aşağıdaki domain tarama verilerini analiz et ve Telegram'da yayınlanacak son derece okunabilir, temiz bir özet rapor hazırla.
 
