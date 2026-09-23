@@ -108,11 +108,147 @@ def check_domain(domain):
 
 
 def analyze_with_ai(domain_results):
-    prompt = f"""
-Aşağıdaki domain tarama verilerini analiz et ve Telegram'da yayınlanacak son derece okunabilir, temiz bir özet rapor hazırla.
+    prompt = (
+        "Aşağıdaki domain tarama verilerini analiz et ve Telegram'da yayınlanacak "
+        "son derece okunabilir, temiz bir özet rapor hazırla.\n\n"
+        "Sadece Türkçe yanıt ver. Uzun paragraflar yazma, doğrudan tablo ve maddeler kullan.\n\n"
+        "Çıktıyı aynen aşağıdaki şablonda oluştur:\n\n"
+        "📊 **HAFTALIK DOMAIN DURUM RAPORU**\n\n"
+        "```\n"
+        "DOMAIN            | DURUM       | HTTP | SATIŞTA MI?\n"
+        "------------------|-------------|------|------------\n"
+        "example1.com      | Aktif Site  | 200  | ❌ Hayır\n"
+        "example2.com      | Park Edilmiş| 200  | ⚠️ Evet (Sedo)\n"
+        "example3.com      | Erişilemez  | 500  | ❌ Hayır\n"
+        "```\n\n"
+        "📌 **DETAYLAR & TESPİTLER:**\n"
+        "• **domain.com:** Açıklama (örn: El değiştirmiş olabilir veya GoDaddy park sayfasında).\n\n"
+        "💡 **GENEL ÖZET:**\n"
+        "[1-2 cümlelik kısa genel durum değerlendirmesi]\n\n"
+        "Veriler:\n" + str(domain_results)
+    )
 
-Sadece Türkçe yanıt ver. Uzun paragraflar yazma, doğrudan tablo ve maddeler kullan.
+    for model_name in MODELS:
+        print(f"Trying model: {model_name}")
 
-Çıktıyı aynen aşağıdaki şablonda oluştur:
+        for attempt in range(4):
+            try:
+                print(f"Attempt {attempt + 1}/4")
 
-📊 **HAFTALIK DOMAIN DURUM RAPORU**
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+
+                if response is None:
+                    raise RuntimeError("Empty Gemini response")
+
+                text = getattr(response, "text", None)
+
+                if not text:
+                    raise RuntimeError("Empty Gemini response text")
+
+                return text
+
+            except errors.APIError as exc:
+                print(f"Gemini API error: {exc}")
+
+                status_code = getattr(exc, "code", None)
+
+                retryable_codes = {
+                    408,
+                    429,
+                    500,
+                    502,
+                    503,
+                    504
+                }
+
+                if status_code not in retryable_codes:
+                    break
+
+                wait_time = min(5 * (2 ** attempt), 60)
+                print(f"Waiting {wait_time} seconds")
+                time.sleep(wait_time)
+
+            except Exception as exc:
+                print(f"Gemini error: {exc}")
+
+                wait_time = min(5 * (2 ** attempt), 60)
+                time.sleep(wait_time)
+
+    return None
+
+
+def main():
+    print("Starting domain monitor")
+
+    if not os.path.exists("domains.txt"):
+        send_telegram_message(
+            "❌ `domains.txt` dosyası bulunamadı."
+        )
+        return
+
+    try:
+        with open(
+            "domains.txt",
+            "r",
+            encoding="utf-8"
+        ) as file:
+            domains = [
+                line.strip()
+                for line in file
+                if line.strip()
+                and not line.strip().startswith("#")
+            ]
+
+    except Exception as exc:
+        print(f"Could not read domains.txt: {exc}")
+        send_telegram_message(
+            f"❌ `domains.txt` okunamadı: {exc}"
+        )
+        return
+
+    if not domains:
+        send_telegram_message(
+            "⚠️ `domains.txt` dosyası boş."
+        )
+        return
+
+    results = []
+
+    for domain in domains:
+        print(f"Checking: {domain}")
+
+        status, content, final_url = check_domain(domain)
+
+        result = (
+            f"Domain: {domain}\n"
+            f"HTTP Status: {status}\n"
+            f"Final URL: {final_url}\n"
+            f"Content:\n{content[:1500]}\n"
+            f"{'-' * 50}"
+        )
+
+        results.append(result)
+
+    all_data = "\n\n".join(results)
+
+    report = analyze_with_ai(all_data)
+
+    if report:
+        message = report
+    else:
+        message = (
+            "⚠️ **AI Raporu Oluşturulamadı** (Sunucu Yoğunluğu)\n\n"
+            "**Ham Tarama Sonuçları:**\n\n"
+            f"```\n{all_data[:3000]}\n```"
+        )
+
+    send_telegram_message(message)
+
+    print("Domain monitor finished")
+
+
+if __name__ == "__main__":
+    main()
