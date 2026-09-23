@@ -14,9 +14,11 @@ if not GEMINI_API_KEY:
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+# Yoğunluk durumunda sırasıyla denenecek modeller
 MODELS = [
     "gemini-2.5-flash",
     "gemini-2.0-flash",
+    "gemini-1.5-flash",
 ]
 
 
@@ -40,10 +42,7 @@ def send_telegram_message(message):
             print("Telegram message sent.")
             return
 
-        print(
-            f"Telegram error: {response.status_code} "
-            f"{response.text}"
-        )
+        print(f"Telegram error: {response.status_code} {response.text}")
 
         if len(message) > 4000:
             message = message[:4000]
@@ -59,10 +58,7 @@ def send_telegram_message(message):
         )
 
         if not response.ok:
-            print(
-                f"Telegram retry error: "
-                f"{response.status_code} {response.text}"
-            )
+            print(f"Telegram retry error: {response.status_code} {response.text}")
 
     except requests.RequestException as exc:
         print(f"Telegram connection error: {exc}")
@@ -95,9 +91,10 @@ def check_domain(domain):
                 allow_redirects=True
             )
 
+            # İçeriği 1500 karaktere süzerek AI'a binen yükü hafifletiyoruz
             return (
                 response.status_code,
-                response.text[:3000],
+                response.text[:1500],
                 response.url
             )
 
@@ -131,9 +128,9 @@ def analyze_with_ai(domain_results):
     for model_name in MODELS:
         print(f"Trying model: {model_name}")
 
-        for attempt in range(4):
+        for attempt in range(3):
             try:
-                print(f"Attempt {attempt + 1}/4")
+                print(f"Attempt {attempt + 1}/3 for {model_name}")
 
                 response = client.models.generate_content(
                     model=model_name,
@@ -151,31 +148,23 @@ def analyze_with_ai(domain_results):
                 return text
 
             except errors.APIError as exc:
-                print(f"Gemini API error: {exc}")
+                print(f"Gemini API error ({model_name}): {exc}")
 
                 status_code = getattr(exc, "code", None)
 
-                retryable_codes = {
-                    408,
-                    429,
-                    500,
-                    502,
-                    503,
-                    504
-                }
+                retryable_codes = {408, 429, 500, 502, 503, 504}
 
                 if status_code not in retryable_codes:
                     break
 
-                wait_time = min(5 * (2 ** attempt), 60)
-                print(f"Waiting {wait_time} seconds")
+                # Yoğunluk durumunda sunucuya zaman tanımak için 10, 20 sn bekleme
+                wait_time = (attempt + 1) * 10
+                print(f"Waiting {wait_time} seconds before retrying...")
                 time.sleep(wait_time)
 
             except Exception as exc:
-                print(f"Gemini error: {exc}")
-
-                wait_time = min(5 * (2 ** attempt), 60)
-                time.sleep(wait_time)
+                print(f"Gemini error ({model_name}): {exc}")
+                time.sleep(10)
 
     return None
 
@@ -184,35 +173,24 @@ def main():
     print("Starting domain monitor")
 
     if not os.path.exists("domains.txt"):
-        send_telegram_message(
-            "❌ `domains.txt` dosyası bulunamadı."
-        )
+        send_telegram_message("❌ `domains.txt` dosyası bulunamadı.")
         return
 
     try:
-        with open(
-            "domains.txt",
-            "r",
-            encoding="utf-8"
-        ) as file:
+        with open("domains.txt", "r", encoding="utf-8") as file:
             domains = [
                 line.strip()
                 for line in file
-                if line.strip()
-                and not line.strip().startswith("#")
+                if line.strip() and not line.strip().startswith("#")
             ]
 
     except Exception as exc:
         print(f"Could not read domains.txt: {exc}")
-        send_telegram_message(
-            f"❌ `domains.txt` okunamadı: {exc}"
-        )
+        send_telegram_message(f"❌ `domains.txt` okunamadı: {exc}")
         return
 
     if not domains:
-        send_telegram_message(
-            "⚠️ `domains.txt` dosyası boş."
-        )
+        send_telegram_message("⚠️ `domains.txt` dosyası boş.")
         return
 
     results = []
@@ -226,7 +204,7 @@ def main():
             f"Domain: {domain}\n"
             f"HTTP Status: {status}\n"
             f"Final URL: {final_url}\n"
-            f"Content:\n{content[:1500]}\n"
+            f"Content:\n{content[:1000]}\n"
             f"{'-' * 50}"
         )
 
