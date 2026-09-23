@@ -13,7 +13,6 @@ if not GEMINI_API_KEY:
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Hizli ve hafif model listesi
 MODELS = [
     "gemini-2.5-flash",
     "gemini-2.0-flash",
@@ -37,7 +36,7 @@ def send_telegram_message(message):
     try:
         response = requests.post(url, json=payload, timeout=15)
         if response.ok:
-            print("Telegram mesajı başarıyla gönderildi.")
+            print("Telegram mesajı gönderildi.")
             return
 
         if len(message) > 4000:
@@ -45,7 +44,7 @@ def send_telegram_message(message):
             requests.post(url, json=payload, timeout=15)
 
     except Exception as exc:
-        print(f"Telegram gönderme hatası: {exc}")
+        print(f"Telegram hatası: {exc}")
 
 
 def check_domain(domain):
@@ -57,69 +56,73 @@ def check_domain(domain):
 
     for url in urls:
         try:
-            # HEAD isteği atarak sayfa içeriğini indirmeden sadece başlıkları/status kodunu alıyoruz (Çok hızlıdır)
             response = requests.head(
                 url,
                 timeout=5,
                 headers={"User-Agent": "Mozilla/5.0"},
                 allow_redirects=True
             )
-            return response.status_code
+            return str(response.status_code)
         except requests.RequestException:
-            # HEAD isteğini engelleyen siteler olursa fallback olarak GET deneyelim
             try:
                 response = requests.get(
                     url,
                     timeout=5,
                     headers={"User-Agent": "Mozilla/5.0"},
                     allow_redirects=True,
-                    stream=True  # İçeriği indirmeden bağlantıyı kapatır
+                    stream=True
                 )
-                return response.status_code
+                return str(response.status_code)
             except requests.RequestException:
                 continue
 
     return "ERROR"
 
 
+def create_fallback_table(results_dict):
+    """AI yanıt vermezse Python'ın kendi oluşturacağı nizami tablo"""
+    lines = [
+        "📊 **HAFTALIK DOMAIN DURUM RAPORU**\n",
+        "```",
+        f"{'DOMAIN':<25} | {'HTTP':<6} | {'DURUM':<12}",
+        "-" * 25 + "-|-" + "-" * 6 + "-|-" + "-" * 12
+    ]
+    
+    for domain, status in results_dict.items():
+        durum_text = "Erişilebilir" if status == "200" else ("Yönlendirildi" if status in ["301", "302"] else "Erişilemez")
+        lines.append(f"{domain:<25} | {status:<6} | {durum_text:<12}")
+        
+    lines.append("```")
+    lines.append("\n💡 **ÖZET:** Sistem taraması otomatik olarak tamamlandı.")
+    return "\n".join(lines)
+
+
 def analyze_with_ai(domain_results):
     prompt = (
-        "Sen bir Telegram bildirim botusun. Görevin sana verilen domain durum kodlarını "
-        "SADECE verilen tablo şablonuna uygun olarak Türkçe raporlamaktır.\n\n"
-        "KESİN KURALLAR:\n"
-        "1. Yanıtına asla giriş, selamlama, kod bloğu açıklaması veya fazladan cümle EKLEME.\n"
-        "2. Doğrudan 📊 emoji simgesi ile başla.\n"
-        "3. HTTP Durum koduna göre 'Ulaşılıyor (200 OK)', 'Yönlendirildi (301/302)', 'Sunucu Hatası (500/502)' veya 'Erişilemez (ERROR)' şeklinde durum yaz.\n\n"
-        "ÇIKTI ŞABLONU:\n"
-        "📊 **DOMAIN ERİŞİM RAPORU**\n\n"
+        "Aşağıdaki domain kontrol verilerini analiz et ve SADECE aşağıdaki Markdown tablo formatında Türkçe yanıt üret.\n\n"
+        "ŞABLON (Asla bu formatın dışına çıkma, giriş/çıkış açıklaması yapma):\n\n"
+        "📊 **HAFTALIK DOMAIN DURUM RAPORU**\n\n"
         "```\n"
-        "DOMAIN                 | HTTP KODU | DURUM\n"
-        "-----------------------|-----------|-------------\n"
-        "[domain_adi]           | [kod]     | [Erişilebilir/Erişilemez]\n"
+        "DOMAIN                    | HTTP   | DURUM\n"
+        "--------------------------|--------|-------------\n"
+        "example1.com              | 200    | Erişilebilir\n"
+        "example2.com              | ERROR  | Erişilemez\n"
         "```\n\n"
-        "💡 **ÖZET:** [Kaç domainden kaç tanesine erişildiğini belirten tek cümle]\n\n"
-        "Veriler:\n" + str(domain_results)
+        "💡 **ÖZET:** [1 cümlelik genel durum özeti]\n\n"
+        f"Veriler:\n{domain_results}"
     )
 
     for model_name in MODELS:
-        print(f"Model deneniyor: {model_name}")
-
-        for attempt in range(3):
+        for attempt in range(2):
             try:
-                print(f"Deneme {attempt + 1}/3 ({model_name})")
-
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt
                 )
-
                 if response and hasattr(response, "text") and response.text:
                     return response.text
-
-            except Exception as exc:
-                print(f"⚠️ {model_name} hatası yakalandı: {exc}")
-                wait_time = (attempt + 1) * 5
-                time.sleep(wait_time)
+            except Exception:
+                time.sleep(3)
 
     return None
 
@@ -146,22 +149,28 @@ def main():
         send_telegram_message("⚠️ `domains.txt` dosyası boş.")
         return
 
-    results = []
+    results_dict = {}
+    formatted_results = []
+
     for domain in domains:
         print(f"Kontrol ediliyor: {domain}")
         status = check_domain(domain)
-        results.append(f"{domain} -> HTTP: {status}")
+        # Temiz domain adını alalım
+        clean_domain = domain.replace("https://", "").replace("http://", "").strip("/")
+        results_dict[clean_domain] = status
+        formatted_results.append(f"{clean_domain} -> HTTP: {status}")
 
-    all_data = "\n".join(results)
+    all_data = "\n".join(formatted_results)
 
+    # AI Analizi Al
     report = analyze_with_ai(all_data)
 
     if report:
         send_telegram_message(report)
     else:
-        # AI yanıt vermezse sadeleştirilmiş ham durum tablosu
-        summary_text = "⚠️ **AI Raporu Oluşturulamadı (Ham Sonuçlar):**\n\n```\n" + all_data + "\n```"
-        send_telegram_message(summary_text)
+        # AI çalışmasa bile Telegram'a kesinlikle tablo gidecek
+        fallback_table = create_fallback_table(results_dict)
+        send_telegram_message(fallback_table)
 
     print("İşlem tamamlandı.")
 
